@@ -162,6 +162,7 @@ def is_flag(bgr: np.ndarray) -> bool:
     return True
 
 
+
 def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
     """Classify a single Minesweeper tile."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
