@@ -42,7 +42,8 @@ Example (with the included board image):
 python MineSweeper.py Board.jpg --rows 16 --cols 30 --show
 ```
 
-The script will save `debug_grid.png` with recognised numbers and `overlay.png` with a probability overlay. The solver performs a few basic deterministic deductions, marking tiles that must contain a mine with probability **1.0** and safe tiles with **0.0**. Remaining unknowns keep a default 0.5 probability.
+
+The script will save `debug_grid.png` with recognised numbers and `overlay.png` with dummy probability hints. The actual solving logic is minimal at this stage and only assigns a uniform probability to unknown tiles.
 
 ## Notes
 
