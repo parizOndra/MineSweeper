@@ -148,28 +148,34 @@ def is_flag(bgr: np.ndarray) -> bool:
     pix = h * w
 
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    red = cv2.inRange(hsv, (0,70,70), (12,255,255)) | cv2.inRange(hsv, (170,70,70), (180,255,255))
+    red = cv2.inRange(hsv, (0,70,70), (10,255,255)) | cv2.inRange(hsv, (170,70,70), (180,255,255))
     red_cnt = int(red.sum() / 255)
+    if red_cnt < pix * 0.15:
+        return False
 
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    black_cnt = int(np.count_nonzero(gray < 40))
+    dark = gray < 50
+    col_sum = dark.sum(axis=0)
+    if col_sum.max() < 0.6 * h:
+        return False
 
-    dark_thresh = max(int(pix * 0.04), 15)
-    return red_cnt > pix * 0.20 and black_cnt > dark_thresh
+    return True
+
 
 
 def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
     """Classify a single Minesweeper tile."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
-    # 1️⃣ Digit via colour / template / OCR
+    # 1️⃣ Flag (check first so the red colour of the pennant is not
+    # misclassified as digit "3")
+    if is_flag(bgr):
+        return FLAGGED
+
+    # 2️⃣ Digit via colour / template / OCR
     digit = detect_digit(gray, bgr, ocr_ok)
     if digit is not None:
         return digit
-
-    # 2️⃣ Flag (after digit to avoid 3→flag omyl)
-    if is_flag(bgr):
-        return FLAGGED
 
     # 3️⃣ Blank revealed 0
     edges = cv2.Canny(gray, 40, 120)
@@ -209,6 +215,7 @@ def solve(board: np.ndarray) -> SolverResult:
     unk_mask = board == UNKNOWN
     probs[unk_mask] = 0.5
     probs[board == FLAGGED] = 1.0
+    probs[board >= 0] = 0.0  # revealed tiles contain no mines
 
     def neighbors(r: int, c: int):
         for dr in (-1, 0, 1):

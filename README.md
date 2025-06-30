@@ -41,10 +41,8 @@ Example (with the included board image):
 ```bash
 python MineSweeper.py Board.jpg --rows 16 --cols 30 --show
 ```
-
-
-The script will save `debug_grid.png` with recognised numbers and `overlay.png` with dummy probability hints. The actual solving logic is minimal at this stage and only assigns a uniform probability to unknown tiles.
+The script will save `debug_grid.png` with recognised numbers and `overlay.png` with a probability overlay. The solver performs a few basic deterministic deductions, marking tiles that must contain a mine with probability **1.0** and safe tiles with **0.0**. Remaining unknowns keep a default 0.5 probability. Revealed tiles are shown with a fixed 0.0 probability.
 
 ## Notes
 
-The code currently contains a few placeholder pieces and may require adjustments for your environment. For example, a folder `templates/` with digit images can be used as a fallback when OCR is not available.
+The script uses a simple heuristic to detect flags, looking for a vertical black mast topped with a red pennant. This avoids confusing flags with the red digit "3". The code currently contains a few placeholder pieces and may require adjustments for your environment. For example, a folder `templates/` with digit images can be used as a fallback when OCR is not available.
