@@ -73,8 +73,14 @@ def color_digit(bgr: np.ndarray) -> int | None:
     """
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    smean, vmean = int(np.mean(s)), int(np.mean(v))
-    hmean        = int(np.mean(h))
+    mask = (s > 50) & (v > 60)
+    if np.count_nonzero(mask) < 5:
+        return None
+    hvals = h[mask]
+    smean = int(np.mean(s[mask]))
+    vmean = int(np.mean(v[mask]))
+    hist = np.histogram(hvals, bins=180, range=(0,180))[0]
+    peak = hist.argmax()
 
     # Unsaturated cases first (7,8)
     if smean < 50:
@@ -85,19 +91,19 @@ def color_digit(bgr: np.ndarray) -> int | None:
         return None
 
     # Red / Brown / 3 or 5
-    if (hmean < 15 or hmean > 170):
+    if peak < 15 or peak > 170:
         return 3 if vmean > 130 else 5
 
     # Green 2
-    if 45 < hmean < 85:
+    if 45 < peak < 85:
         return 2
 
     # Cyan 6
-    if 85 < hmean < 100:
+    if 85 < peak < 100:
         return 6
 
     # Blue family 1 / 4 (bright vs dark)
-    if 100 < hmean < 135:
+    if 100 < peak < 135:
         return 1 if vmean > 120 else 4
 
     return None  # málo barevných bodů → 7 nebo 8 nebo neznámé
@@ -167,7 +173,7 @@ def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
 
     # 3️⃣ Blank revealed 0
     edges = cv2.Canny(gray, 40, 120)
-    if gray.mean() > 160 and edges.sum() / 255 < 0.10 * (gray.shape[0]*gray.shape[1]):
+    if gray.mean() > 185 and edges.sum() / 255 < 0.08 * (gray.shape[0]*gray.shape[1]):
         return 0
 
     # 4️⃣ Covered
