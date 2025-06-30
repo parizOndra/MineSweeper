@@ -73,8 +73,14 @@ def color_digit(bgr: np.ndarray) -> int | None:
     """
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    smean, vmean = int(np.mean(s)), int(np.mean(v))
-    hmean        = int(np.mean(h))
+    mask = (s > 50) & (v > 60)
+    if np.count_nonzero(mask) < 5:
+        return None
+    hvals = h[mask]
+    smean = int(np.mean(s[mask]))
+    vmean = int(np.mean(v[mask]))
+    hist = np.histogram(hvals, bins=180, range=(0,180))[0]
+    peak = hist.argmax()
 
     # Unsaturated cases first (7,8)
     if smean < 50:
@@ -85,35 +91,22 @@ def color_digit(bgr: np.ndarray) -> int | None:
         return None
 
     # Red / Brown / 3 or 5
-    if (hmean < 15 or hmean > 170):
+    if peak < 15 or peak > 170:
         return 3 if vmean > 130 else 5
 
     # Green 2
-    if 45 < hmean < 85:
+    if 45 < peak < 85:
         return 2
 
     # Cyan 6
-    if 85 < hmean < 100:
+    if 85 < peak < 100:
         return 6
 
     # Blue family 1 / 4 (bright vs dark)
-    if 100 < hmean < 135:
+    if 100 < peak < 135:
         return 1 if vmean > 120 else 4
 
     return None  # málo barevných bodů → 7 nebo 8 nebo neznámé
-
-    mean_h = int(np.median(h[mask]))
-    mean_v = int(np.median(v[mask]))
-
-    if 100 < mean_h < 140:      # modrá oblast
-        return 1 if mean_v > 120 else 4
-    if 50 < mean_h < 85:        # zelená
-        return 2
-    if mean_h < 15 or mean_h > 170:  # červená / hnědá
-        return 3 if mean_v > 120 else 5
-    if 85 < mean_h < 100:       # tyrkysová
-        return 6
-    return None
 
 def detect_digit(gray: np.ndarray, bgr: np.ndarray, ocr_ok: bool) -> int | None:
     """Return digit 0‑8 or None.
@@ -155,31 +148,37 @@ def is_flag(bgr: np.ndarray) -> bool:
     pix = h * w
 
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    red = cv2.inRange(hsv, (0,70,70), (12,255,255)) | cv2.inRange(hsv, (170,70,70), (180,255,255))
+    red = cv2.inRange(hsv, (0,70,70), (10,255,255)) | cv2.inRange(hsv, (170,70,70), (180,255,255))
     red_cnt = int(red.sum() / 255)
+    if red_cnt < pix * 0.15:
+        return False
 
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    black_cnt = int(np.count_nonzero(gray < 40))
+    dark = gray < 50
+    col_sum = dark.sum(axis=0)
+    if col_sum.max() < 0.6 * h:
+        return False
 
-    return red_cnt > pix * 0.20 and black_cnt > pix * 0.04(mask) > 150
+    return True
 
 
 def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
     """Classify a single Minesweeper tile."""
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
-    # 1️⃣ Digit via colour / template / OCR
+    # 1️⃣ Flag (check first so the red colour of the pennant is not
+    # misclassified as digit "3")
+    if is_flag(bgr):
+        return FLAGGED
+
+    # 2️⃣ Digit via colour / template / OCR
     digit = detect_digit(gray, bgr, ocr_ok)
     if digit is not None:
         return digit
 
-    # 2️⃣ Flag (after digit to avoid 3→flag omyl)
-    if is_flag(bgr):
-        return FLAGGED
-
     # 3️⃣ Blank revealed 0
     edges = cv2.Canny(gray, 40, 120)
-    if gray.mean() > 160 and edges.sum() / 255 < 0.10 * (gray.shape[0]*gray.shape[1]):
+    if gray.mean() > 185 and edges.sum() / 255 < 0.08 * (gray.shape[0]*gray.shape[1]):
         return 0
 
     # 4️⃣ Covered
@@ -191,7 +190,7 @@ def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
 
 # ───────────────────────── grid helpers ───────────────────────────────────────
 
-def split(img: np.ndarray, rows: int, cols: int):(img: np.ndarray, rows: int, cols: int):
+def split(img: np.ndarray, rows: int, cols: int):
     h, w = img.shape[:2]
     ch, cw = h // rows, w // cols
     return [[img[r*ch:(r+1)*ch, c*cw:(c+1)*cw] for c in range(cols)] for r in range(rows)]
@@ -207,10 +206,51 @@ def build_board(cells, rows, cols, ocr_ok):
 # ────────────────────────── dummy solver ─────────────────────────────────────-
 
 def solve(board: np.ndarray) -> SolverResult:
+    """Return probability map and a recommended tile to uncover."""
+    rows, cols = board.shape
     probs = np.full(board.shape, np.nan)
-    mask = board == UNKNOWN
-    probs[mask] = 0.5  # uniform placeholder
-    best = tuple(np.argwhere(mask)[0]) if mask.any() else (-1, -1)
+
+    # start with neutral probabilities
+    unk_mask = board == UNKNOWN
+    probs[unk_mask] = 0.5
+    probs[board == FLAGGED] = 1.0
+    probs[board >= 0] = 0.0  # revealed tiles contain no mines
+
+    def neighbors(r: int, c: int):
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    yield nr, nc
+
+    # basic deterministic deductions
+    for r in range(rows):
+        for c in range(cols):
+            val = board[r, c]
+            if 1 <= val <= 8:
+                nbs = list(neighbors(r, c))
+                flagged = sum(board[nr, nc] == FLAGGED for nr, nc in nbs)
+                unks = [(nr, nc) for nr, nc in nbs if board[nr, nc] == UNKNOWN]
+                if not unks:
+                    continue
+                if val - flagged == len(unks):
+                    for nr, nc in unks:
+                        probs[nr, nc] = 1.0
+                elif val == flagged:
+                    for nr, nc in unks:
+                        probs[nr, nc] = 0.0
+
+    # choose lowest probability unknown as suggestion
+    cand = (board == UNKNOWN) & ~np.isnan(probs)
+    best = (-1, -1)
+    if cand.any():
+        flat = probs.copy()
+        flat[~cand] = np.nan
+        idx = np.nanargmin(flat)
+        best = (idx // cols, idx % cols)
+
     return SolverResult(probs, best)
 
 # ───────────────────────── debug vizualizace ─────────────────────────────────
