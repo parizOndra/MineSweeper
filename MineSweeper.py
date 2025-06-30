@@ -73,8 +73,14 @@ def color_digit(bgr: np.ndarray) -> int | None:
     """
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    smean, vmean = int(np.mean(s)), int(np.mean(v))
-    hmean        = int(np.mean(h))
+    mask = (s > 50) & (v > 60)
+    if np.count_nonzero(mask) < 5:
+        return None
+    hvals = h[mask]
+    smean = int(np.mean(s[mask]))
+    vmean = int(np.mean(v[mask]))
+    hist = np.histogram(hvals, bins=180, range=(0,180))[0]
+    peak = hist.argmax()
 
     # Unsaturated cases first (7,8)
     if smean < 50:
@@ -85,35 +91,22 @@ def color_digit(bgr: np.ndarray) -> int | None:
         return None
 
     # Red / Brown / 3 or 5
-    if (hmean < 15 or hmean > 170):
+    if peak < 15 or peak > 170:
         return 3 if vmean > 130 else 5
 
     # Green 2
-    if 45 < hmean < 85:
+    if 45 < peak < 85:
         return 2
 
     # Cyan 6
-    if 85 < hmean < 100:
+    if 85 < peak < 100:
         return 6
 
     # Blue family 1 / 4 (bright vs dark)
-    if 100 < hmean < 135:
+    if 100 < peak < 135:
         return 1 if vmean > 120 else 4
 
     return None  # málo barevných bodů → 7 nebo 8 nebo neznámé
-
-    mean_h = int(np.median(h[mask]))
-    mean_v = int(np.median(v[mask]))
-
-    if 100 < mean_h < 140:      # modrá oblast
-        return 1 if mean_v > 120 else 4
-    if 50 < mean_h < 85:        # zelená
-        return 2
-    if mean_h < 15 or mean_h > 170:  # červená / hnědá
-        return 3 if mean_v > 120 else 5
-    if 85 < mean_h < 100:       # tyrkysová
-        return 6
-    return None
 
 def detect_digit(gray: np.ndarray, bgr: np.ndarray, ocr_ok: bool) -> int | None:
     """Return digit 0‑8 or None.
@@ -161,7 +154,8 @@ def is_flag(bgr: np.ndarray) -> bool:
     gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
     black_cnt = int(np.count_nonzero(gray < 40))
 
-    return red_cnt > pix * 0.20 and black_cnt > pix * 0.04(mask) > 150
+    dark_thresh = max(int(pix * 0.04), 15)
+    return red_cnt > pix * 0.20 and black_cnt > dark_thresh
 
 
 def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
@@ -179,7 +173,7 @@ def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
 
     # 3️⃣ Blank revealed 0
     edges = cv2.Canny(gray, 40, 120)
-    if gray.mean() > 160 and edges.sum() / 255 < 0.10 * (gray.shape[0]*gray.shape[1]):
+    if gray.mean() > 185 and edges.sum() / 255 < 0.08 * (gray.shape[0]*gray.shape[1]):
         return 0
 
     # 4️⃣ Covered
@@ -191,7 +185,7 @@ def classify(bgr: np.ndarray, ocr_ok: bool) -> int:
 
 # ───────────────────────── grid helpers ───────────────────────────────────────
 
-def split(img: np.ndarray, rows: int, cols: int):(img: np.ndarray, rows: int, cols: int):
+def split(img: np.ndarray, rows: int, cols: int):
     h, w = img.shape[:2]
     ch, cw = h // rows, w // cols
     return [[img[r*ch:(r+1)*ch, c*cw:(c+1)*cw] for c in range(cols)] for r in range(rows)]
