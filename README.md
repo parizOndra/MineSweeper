@@ -42,6 +42,7 @@ Example (with the included board image):
 python MineSweeper.py Board.jpg --rows 16 --cols 30 --show
 ```
 
+
 The script will save `debug_grid.png` with recognised numbers and `overlay.png` with dummy probability hints. The actual solving logic is minimal at this stage and only assigns a uniform probability to unknown tiles.
 
 ## Notes
