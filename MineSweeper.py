@@ -201,10 +201,50 @@ def build_board(cells, rows, cols, ocr_ok):
 # ────────────────────────── dummy solver ─────────────────────────────────────-
 
 def solve(board: np.ndarray) -> SolverResult:
+    """Return probability map and a recommended tile to uncover."""
+    rows, cols = board.shape
     probs = np.full(board.shape, np.nan)
-    mask = board == UNKNOWN
-    probs[mask] = 0.5  # uniform placeholder
-    best = tuple(np.argwhere(mask)[0]) if mask.any() else (-1, -1)
+
+    # start with neutral probabilities
+    unk_mask = board == UNKNOWN
+    probs[unk_mask] = 0.5
+    probs[board == FLAGGED] = 1.0
+
+    def neighbors(r: int, c: int):
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    yield nr, nc
+
+    # basic deterministic deductions
+    for r in range(rows):
+        for c in range(cols):
+            val = board[r, c]
+            if 1 <= val <= 8:
+                nbs = list(neighbors(r, c))
+                flagged = sum(board[nr, nc] == FLAGGED for nr, nc in nbs)
+                unks = [(nr, nc) for nr, nc in nbs if board[nr, nc] == UNKNOWN]
+                if not unks:
+                    continue
+                if val - flagged == len(unks):
+                    for nr, nc in unks:
+                        probs[nr, nc] = 1.0
+                elif val == flagged:
+                    for nr, nc in unks:
+                        probs[nr, nc] = 0.0
+
+    # choose lowest probability unknown as suggestion
+    cand = (board == UNKNOWN) & ~np.isnan(probs)
+    best = (-1, -1)
+    if cand.any():
+        flat = probs.copy()
+        flat[~cand] = np.nan
+        idx = np.nanargmin(flat)
+        best = (idx // cols, idx % cols)
+
     return SolverResult(probs, best)
 
 # ───────────────────────── debug vizualizace ─────────────────────────────────
